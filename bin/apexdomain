@@ -1,3 +1,290 @@
+#!/usr/bin/env bash
+set -e
+
+# @section_code: SC000
+# @section_name: blueprint
+# @blueprint_name: SSP
+# @blueprint_version: 1.0
+# @blueprint_url: https://mush.javanile.org/blueprint/
+
+# @section_code: SC001
+# @section_name: file-meta
+# @package: apexdomain
+# @file_type: build-entrypoint
+# @build_type: bin
+# @build_with: Mush v0.2.0 (2026-03-22 develop)
+# @build_date: 2026-04-21T15:53:23Z
+
+# @section_code: SC005
+# @section_name: functions
+use() { return 0; }
+extern() { return 0; }
+legacy() { return 0; }
+module() { return 0; }
+public() { return 0; }
+embed() { return 0; }
+inject() { return 0; }
+
+# @section_code: SC007
+# @section_name: source
+# @source_index: 1
+# @source_file: src/main.sh
+# @portion_type: entrypoint
+
+module domain
+module probe
+module report
+
+main() {
+  local domain
+  local details
+  local records
+
+  if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    apexdomain_report_usage
+    return 0
+  fi
+
+  details="0"
+
+  if [ "$1" = "--details" ]; then
+    details="1"
+    shift
+  fi
+
+  if [ "$2" = "--details" ]; then
+    details="1"
+    set -- "$1"
+  fi
+
+  if [ "$#" -ne 1 ]; then
+    apexdomain_report_usage >&2
+    return 2
+  fi
+
+  if ! apexdomain_domain_have_command curl; then
+    printf 'apexdomain: curl is required\n' >&2
+    return 127
+  fi
+
+  domain="$(apexdomain_domain_normalize "$1")"
+
+  if ! apexdomain_domain_validate_apex "$domain"; then
+    printf 'apexdomain: expected an apex domain like example.com, got: %s\n' "$1" >&2
+    return 2
+  fi
+
+  records="$(apexdomain_probe_domain "$domain")"
+  apexdomain_report_domain "$domain" "$records" "$details"
+}
+
+# @section_code: SC007
+# @section_name: source
+# @source_index: 2
+# @source_file: src/domain.sh
+# @portion_type: module
+apexdomain_domain_normalize() {
+  local domain
+  domain="$1"
+
+  domain="${domain#http://}"
+  domain="${domain#https://}"
+  domain="${domain%%/*}"
+  domain="${domain%%:*}"
+  domain="${domain%.}"
+  domain="${domain#www.}"
+
+  printf '%s' "$domain" | tr '[:upper:]' '[:lower:]'
+}
+
+apexdomain_domain_validate_apex() {
+  local domain
+  domain="$1"
+
+  if [ -z "$domain" ]; then
+    return 1
+  fi
+
+  case "$domain" in
+    *.*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+apexdomain_domain_have_command() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# @section_code: SC007
+# @section_name: source
+# @source_index: 3
+# @source_file: src/probe.sh
+# @portion_type: module
+APEXDOMAIN_CONNECT_TIMEOUT="${APEXDOMAIN_CONNECT_TIMEOUT:-8}"
+APEXDOMAIN_MAX_TIME="${APEXDOMAIN_MAX_TIME:-20}"
+APEXDOMAIN_MAX_REDIRECTS="${APEXDOMAIN_MAX_REDIRECTS:-10}"
+
+apexdomain_probe_collect() {
+  local label
+  local url
+  local output
+  local exit_code
+
+  label="$1"
+  url="$2"
+
+  output="$(
+    curl \
+      --silent \
+      --show-error \
+      --location \
+      --max-redirs "$APEXDOMAIN_MAX_REDIRECTS" \
+      --connect-timeout "$APEXDOMAIN_CONNECT_TIMEOUT" \
+      --max-time "$APEXDOMAIN_MAX_TIME" \
+      --output /dev/null \
+      --write-out 'http_code=%{http_code}\neffective_url=%{url_effective}\nnum_redirects=%{num_redirects}\nssl_verify_result=%{ssl_verify_result}\ntime_total=%{time_total}\nremote_ip=%{remote_ip}\ncontent_type=%{content_type}\n' \
+      "$url" 2>&1
+  )"
+  exit_code="$?"
+
+  printf 'label=%s\n' "$label"
+  printf 'url=%s\n' "$url"
+  printf 'exit_code=%s\n' "$exit_code"
+  printf '%s\n' "$output"
+  printf '%s\n' '---'
+}
+
+apexdomain_probe_domain() {
+  local domain
+  domain="$1"
+
+  apexdomain_probe_collect "http-apex" "http://${domain}"
+  apexdomain_probe_collect "https-apex" "https://${domain}"
+  apexdomain_probe_collect "http-www" "http://www.${domain}"
+  apexdomain_probe_collect "https-www" "https://www.${domain}"
+}
+
+apexdomain_probe_field() {
+  local record
+  local key
+  record="$1"
+  key="$2"
+
+  printf '%s\n' "$record" | awk -F= -v key="$key" '$1 == key { sub($1 FS, ""); print; exit }'
+}
+
+apexdomain_probe_curl_error() {
+  local record
+  record="$1"
+
+  printf '%s\n' "$record" | awk -F= '
+    $1 != "label" &&
+    $1 != "url" &&
+    $1 != "exit_code" &&
+    $1 != "http_code" &&
+    $1 != "effective_url" &&
+    $1 != "num_redirects" &&
+    $1 != "ssl_verify_result" &&
+    $1 != "time_total" &&
+    $1 != "remote_ip" &&
+    $1 != "content_type" &&
+    $0 != "" {
+      print $0
+      exit
+    }
+  '
+}
+
+apexdomain_probe_find_record() {
+  local records
+  local wanted
+  records="$1"
+  wanted="$2"
+
+  printf '%s\n' "$records" | awk -v wanted="$wanted" '
+    BEGIN { RS = "---\n"; ORS = "" }
+    $0 ~ ("label=" wanted "\n") {
+      print
+      exit
+    }
+  '
+}
+
+apexdomain_probe_unique_successful_finals() {
+  local records
+  records="$1"
+
+  printf '%s\n' "$records" | awk -F= '
+    $1 == "exit_code" { ok = ($2 == "0") }
+    $1 == "effective_url" && ok && $2 != "" {
+      sub($1 FS, "")
+      finals[$0] = 1
+    }
+    END {
+      for (url in finals) {
+        print url
+      }
+    }
+  ' | sort
+}
+
+apexdomain_probe_status_label() {
+  local exit_code
+  local http_code
+  exit_code="$1"
+  http_code="$2"
+
+  if [ "$exit_code" != "0" ]; then
+    printf 'FAIL'
+    return
+  fi
+
+  case "$http_code" in
+    2*|3*)
+      printf 'OK'
+      ;;
+    4*|5*)
+      printf 'HTTP_%s' "$http_code"
+      ;;
+    *)
+      printf 'UNKNOWN'
+      ;;
+  esac
+}
+
+apexdomain_probe_tls_label() {
+  local url
+  local exit_code
+  local verify_result
+  url="$1"
+  exit_code="$2"
+  verify_result="$3"
+
+  case "$url" in
+    https://*)
+      if [ "$verify_result" = "0" ] && [ "$exit_code" = "0" ]; then
+        printf 'OK'
+      elif [ "$verify_result" = "0" ]; then
+        printf 'CHECK'
+      else
+        printf 'FAIL(%s)' "$verify_result"
+      fi
+      ;;
+    *)
+      printf 'n/a'
+      ;;
+  esac
+}
+
+# @section_code: SC007
+# @section_name: source
+# @source_index: 4
+# @source_file: src/report.sh
+# @portion_type: module
 apexdomain_report_usage() {
   cat <<'EOF'
 Usage:
@@ -175,3 +462,7 @@ apexdomain_report_domain() {
   apexdomain_report_table "$records" "$details"
   apexdomain_report_diagnosis "$records" "$details"
 }
+
+# @section_code: SC006
+# @section_name: entrypoint
+main "$@"
