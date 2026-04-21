@@ -1,11 +1,11 @@
 apexdomain_report_usage() {
   cat <<'EOF'
 Usage:
-  apexdomain <apex-domain>
+  apexdomain [--details] <apex-domain>
 
 Examples:
   apexdomain google.com
-  apexdomain example.org
+  apexdomain --details example.org
 
 Checks every public entrypoint for an apex domain:
   http://apex
@@ -15,11 +15,13 @@ Checks every public entrypoint for an apex domain:
 
 For each URL it reports curl reachability, HTTP status, redirects, final URL,
 TLS verification, and then suggests likely DNS, redirect, or certificate fixes.
+Use --details to include extra probe fields such as remote IPs.
 EOF
 }
 
 apexdomain_report_table() {
   local records
+  local details
   local record
   local labels
   local label
@@ -34,11 +36,12 @@ apexdomain_report_table() {
   local status
 
   records="$1"
+  details="$2"
   labels="http-apex https-apex http-www https-www"
 
   printf '\nEntrypoint checks\n'
-  printf '%-12s %-8s %-9s %-5s %-9s %-11s %s\n' 'entrypoint' 'result' 'http' 'tls' 'redirects' 'time' 'final_url'
-  printf '%-12s %-8s %-9s %-5s %-9s %-11s %s\n' '----------' '------' '----' '---' '---------' '----' '---------'
+  printf '%-12s %-8s %-9s %-8s %-5s %-11s %s\n' 'entrypoint' 'result' 'http' 'tls' 'redir' 'time' 'final_url'
+  printf '%-12s %-8s %-9s %-8s %-5s %-11s %s\n' '----------' '------' '----' '---' '-----' '----' '---------'
 
   for label in $labels; do
     record="$(apexdomain_probe_find_record "$records" "$label")"
@@ -67,19 +70,17 @@ apexdomain_report_table() {
       final_url="-"
     fi
 
-    printf '%-12s %-8s %-9s %-5s %-9s %-11s %s\n' "$label" "$status" "$http_code" "$tls" "$redirects" "$time_total" "$final_url"
+    printf '%-12s %-8s %-9s %-8s %-5s %-11s %s\n' "$label" "$status" "$http_code" "$tls" "$redirects" "$time_total" "$final_url"
 
-    if [ -n "$remote_ip" ]; then
+    if [ "$details" = "1" ] && [ -n "$remote_ip" ]; then
       printf '  remote_ip: %s\n' "$remote_ip"
-    fi
-    if [ "$exit_code" != "0" ]; then
-      printf '  curl_error: %s\n' "$(apexdomain_probe_curl_error "$record")"
     fi
   done
 }
 
 apexdomain_report_warn_entry() {
   local records
+  local details
   local label
   local record
   local url
@@ -89,7 +90,8 @@ apexdomain_report_warn_entry() {
   local error
 
   records="$1"
-  label="$2"
+  details="$2"
+  label="$3"
   record="$(apexdomain_probe_find_record "$records" "$label")"
   url="$(apexdomain_probe_field "$record" url)"
   exit_code="$(apexdomain_probe_field "$record" exit_code)"
@@ -116,21 +118,23 @@ apexdomain_report_warn_entry() {
 
 apexdomain_report_diagnosis() {
   local records
+  local details
   local finals
   local final_count
   local apex_https
   local www_https
 
   records="$1"
+  details="$2"
   finals="$(apexdomain_probe_unique_successful_finals "$records")"
   final_count="$(printf '%s\n' "$finals" | sed '/^$/d' | wc -l | awk '{print $1}')"
 
   printf '\nDiagnosis\n'
 
-  apexdomain_report_warn_entry "$records" "http-apex"
-  apexdomain_report_warn_entry "$records" "https-apex"
-  apexdomain_report_warn_entry "$records" "http-www"
-  apexdomain_report_warn_entry "$records" "https-www"
+  apexdomain_report_warn_entry "$records" "$details" "http-apex"
+  apexdomain_report_warn_entry "$records" "$details" "https-apex"
+  apexdomain_report_warn_entry "$records" "$details" "http-www"
+  apexdomain_report_warn_entry "$records" "$details" "https-www"
 
   if [ "$final_count" -eq 0 ]; then
     printf '%s\n' '- No successful entrypoint was found. Check DNS first, then the web server and TLS termination.'
@@ -159,13 +163,15 @@ apexdomain_report_diagnosis() {
 apexdomain_report_domain() {
   local domain
   local records
+  local details
 
   domain="$1"
   records="$2"
+  details="$3"
 
   printf 'Domain: %s\n' "$domain"
   printf 'Timeouts: connect=%ss total=%ss max_redirects=%s\n' "$APEXDOMAIN_CONNECT_TIMEOUT" "$APEXDOMAIN_MAX_TIME" "$APEXDOMAIN_MAX_REDIRECTS"
 
-  apexdomain_report_table "$records"
-  apexdomain_report_diagnosis "$records"
+  apexdomain_report_table "$records" "$details"
+  apexdomain_report_diagnosis "$records" "$details"
 }

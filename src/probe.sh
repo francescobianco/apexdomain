@@ -149,7 +149,7 @@ apexdomain_probe_tls_label() {
       fi
       ;;
     *)
-      printf '%s' '-'
+      printf 'n/a'
       ;;
   esac
 }

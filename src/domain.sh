@@ -7,6 +7,7 @@ apexdomain_domain_normalize() {
   domain="${domain%%/*}"
   domain="${domain%%:*}"
   domain="${domain%.}"
+  domain="${domain#www.}"
 
   printf '%s' "$domain" | tr '[:upper:]' '[:lower:]'
 }
@@ -20,9 +21,6 @@ apexdomain_domain_validate_apex() {
   fi
 
   case "$domain" in
-    www.*)
-      return 1
-      ;;
     *.*)
       return 0
       ;;

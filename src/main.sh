@@ -5,11 +5,24 @@ module report
 
 main() {
   local domain
+  local details
   local records
 
   if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     apexdomain_report_usage
     return 0
+  fi
+
+  details="0"
+
+  if [ "$1" = "--details" ]; then
+    details="1"
+    shift
+  fi
+
+  if [ "$2" = "--details" ]; then
+    details="1"
+    set -- "$1"
   fi
 
   if [ "$#" -ne 1 ]; then
@@ -30,5 +43,5 @@ main() {
   fi
 
   records="$(apexdomain_probe_domain "$domain")"
-  apexdomain_report_domain "$domain" "$records"
+  apexdomain_report_domain "$domain" "$records" "$details"
 }

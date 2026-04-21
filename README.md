@@ -1,38 +1,66 @@
 # apexdomain
 
-`apexdomain` checks whether every common entrypoint for an apex domain reaches
-the expected website:
+A diagnostic tool that checks whether every common entrypoint for an apex domain reaches the expected website.
+
+## What it does
+
+`apexdomain` probes four URLs for a given domain:
 
 - `http://domain`
 - `https://domain`
 - `http://www.domain`
 - `https://www.domain`
 
-It follows redirects with `curl`, reports the final URL, HTTP status, redirect
-count, remote IP, TLS verification result, and prints a short diagnosis for
-common apex/www problems.
+It follows redirects with `curl` and reports:
+- Final URL after all redirects
+- HTTP status code
+- Redirect count
+- TLS verification result
+- Response time
+- Remote IP (with `--details`)
+
+Then it provides a short diagnosis for common apex/www problems.
+
+## Install
+
+```sh
+git clone https://github.com/anomalyco/apexdomain.git
+cd apexdomain
+mush build
+```
+
+Requires: `mush` (see [mush.javanile.org](https://mush.javanile.org))
 
 ## Usage
 
 ```sh
-mush build
-target/debug/apexdomain example.com
+./target/debug/apexdomain example.com
+./target/debug/apexdomain --details example.com
+./target/debug/apexdomain https://www.example.com/path
 ```
 
-The input must be an apex domain such as `example.com`; `www.example.com` is
-rejected because the tool derives the `www` entrypoints itself.
+The tool normalizes the input:
+- `www.example.com` → `example.com`
+- `https://example.com/` → `example.com`
+- `http://www.example.com/path` → `example.com`
+
+Use `--details` to include extra probe fields like remote IPs and curl error messages.
 
 ## Configuration
 
-Runtime behavior can be tuned with environment variables:
-
-- `APEXDOMAIN_CONNECT_TIMEOUT` defaults to `8`
-- `APEXDOMAIN_MAX_TIME` defaults to `20`
-- `APEXDOMAIN_MAX_REDIRECTS` defaults to `10`
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `APEXDOMAIN_CONNECT_TIMEOUT` | 8 | Connection timeout in seconds |
+| `APEXDOMAIN_MAX_TIME` | 20 | Total timeout in seconds |
+| `APEXDOMAIN_MAX_REDIRECTS` | 10 | Maximum redirect hops |
 
 ## Modules
 
-- `src/main.sh` handles CLI orchestration.
-- `src/domain.sh` normalizes and validates apex domains.
-- `src/probe.sh` runs `curl` and parses probe records.
-- `src/report.sh` renders tables and diagnosis output.
+- `src/main.sh` — CLI orchestration
+- `src/domain.sh` — domain normalization and validation
+- `src/probe.sh` — curl probing and record parsing
+- `src/report.sh` — table rendering and diagnosis output
+
+## License
+
+MIT
